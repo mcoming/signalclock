@@ -8,6 +8,7 @@
 constexpr uint8_t MENU_BTN_PIN = A0;
 constexpr uint8_t UP_BTN_PIN   = A1;
 constexpr uint8_t DOWN_BTN_PIN = A2;
+constexpr uint8_t SYNC_BTN_PIN = A3;
 
 constexpr uint16_t DEBOUNCE_MS_THRESHOLD = 12;   // ~12 ms stable state required
 constexpr uint16_t LONGPRESS_MS_THRESHOLD = 700; // 700 ms long press
@@ -16,6 +17,7 @@ enum ButtonId : uint8_t {
   BUTTON_MENU = 0,
   BUTTON_UP,
   BUTTON_DOWN,
+  BUTTON_SYNC,
   BUTTON_COUNT
 };
 

@@ -123,6 +123,7 @@ void debounce_init(void)
   configure_button(BUTTON_MENU, MENU_BTN_PIN);
   configure_button(BUTTON_UP, UP_BTN_PIN);
   configure_button(BUTTON_DOWN, DOWN_BTN_PIN);
+  configure_button(BUTTON_SYNC, SYNC_BTN_PIN);
   setup_timer2_1khz();
 }
 
@@ -159,4 +160,5 @@ ISR(TIMER2_COMPA_vect)
   debounce_button(g_buttons[BUTTON_MENU]);
   debounce_button(g_buttons[BUTTON_UP]);
   debounce_button(g_buttons[BUTTON_DOWN]);
+  debounce_button(g_buttons[BUTTON_SYNC]);
 }
