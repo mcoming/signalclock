@@ -6,9 +6,11 @@ This test plan is intended for the current patch that introduces:
 
 - `OperatingState`
 - `DisplayState`
-- button dispatch structure
+- `SettingItem`
 - manual sync button behavior
-- timezone setting state flow
+- per-item settings commit on `MENU` short press
+- per-item cancel on `MENU` long press
+- explicit `Exit` settings item
 
 ---
 
@@ -31,11 +33,58 @@ All buttons should be wired as:
 ### Software
 
 - Build and upload the patched branch.
-- Open Serial Monitor at the baud rate used by the sketch.
+- Open Serial Monitor at 9600 baud.
+- Use the Serial Monitor as the primary verification tool for this patch.
 
 ---
 
-## 2. Smoke test after boot
+## 2. Expected behavioral model
+
+### Normal clock display
+
+- `MENU` short -> cycle display mode
+- `MENU` long -> enter settings
+- `UP` short -> switch to status display
+- `DOWN` short -> return to clock display
+- `SYNC` short -> start WWVB sync if idle, otherwise report busy
+
+### Settings model
+
+There are three settings items:
+
+1. `Timezone`
+2. `DST`
+3. `Exit`
+
+Behavior inside settings:
+
+- `UP/DOWN` modify the current item
+- `MENU` short -> commit current item and advance to the next item
+- `MENU` long -> cancel the current item change
+- `SYNC` short -> ignored while setting
+
+### Item-specific behavior
+
+#### Timezone
+- `UP` short increments pending timezone
+- `DOWN` short decrements pending timezone
+- `MENU` short commits timezone and advances to DST
+- `MENU` long cancels timezone edits
+
+#### DST
+- `UP` short toggles DST
+- `DOWN` short toggles DST
+- `MENU` short commits DST and advances to Exit
+- `MENU` long cancels DST edits
+
+#### Exit
+- `MENU` short exits settings
+- `MENU` long cancels Exit item only
+- `UP/DOWN` short goes back to DST
+
+---
+
+## 3. Smoke test after boot
 
 ### Expected result
 
@@ -46,190 +95,18 @@ On power-up:
 - normal clock behavior resumes
 - no immediate resets or lockups
 - if background sync starts automatically, the clock still remains usable
+- Serial Monitor shows an initial state snapshot
 
 ### Pass criteria
 
 - no garbage on Serial
 - no frozen display
 - no repeated reboot loop
+- startup state print appears reasonable
 
 ---
 
-## 3. Button electrical sanity check
-
-Press each button once and verify the firmware responds consistently.
-
-### MENU short
-
-Expected:
-
-- while on the normal clock display, a short press should advance the placeholder display mode
-- current patch reports this through Serial
-
-Press `MENU` briefly 3 to 5 times.
-
-Pass if:
-
-- each short press produces one response
-- no duplicate triggers from one press
-- no missed presses under normal use
-
-### MENU long
-
-Expected:
-
-- enters timezone setting mode
-- this should be visible in Serial and internal behavior
-- after entering, UP and DOWN should adjust the pending timezone value
-
-Hold `MENU` for longer than the long-press threshold.
-
-Pass if:
-
-- one long press enters timezone setting
-- it does not also act like repeated short presses
-
-### UP short
-
-On normal clock display:
-
-- expected to switch to status display
-
-In timezone setting mode:
-
-- expected to increase `pending_timezone_hours`
-
-### DOWN short
-
-On normal clock display:
-
-- may currently be unused
-
-In timezone setting mode:
-
-- expected to decrease `pending_timezone_hours`
-
-### SYNC short
-
-Expected:
-
-- if idle, starts WWVB sync
-- if already syncing, does not restart; should report busy feedback
-
----
-
-## 4. Debounce behavior test
-
-This is the most important part for the new button structure.
-
-### Short press test
-
-For each button:
-
-- press briefly and release
-- do this 10 times at a comfortable human speed
-
-Pass if each intended action happens once per press.
-
-Failure signs:
-
-- one press triggers two actions
-- a short press triggers long-press behavior
-- release-only behavior appears without intended action
-- very light taps are ignored too often
-
-### Long press test
-
-For `MENU`:
-
-- press and hold past the long-press threshold
-- repeat 5 times
-
-Pass if:
-
-- long press consistently enters timezone setting
-- it does not also perform the short-press action first unless that is explicitly intended
-
-### Bounce/noise test
-
-Try these deliberately:
-
-- very quick taps
-- slightly shaky presses
-- repeated presses in quick succession
-
-Pass if:
-
-- no obvious extra triggers
-- no stuck state
-- no random mode changes
-
----
-
-## 5. Timezone setting flow test
-
-This verifies the new state hierarchy behavior.
-
-### Enter timezone setting
-
-From normal clock display:
-
-- hold `MENU`
-
-Expected:
-
-- operating state should move to `OPERATING_SETTING`
-- display state should move to `DISPLAY_SET_TIMEZONE`
-
-### Adjust timezone
-
-While in timezone setting:
-
-- press `UP` several times
-- press `DOWN` several times
-
-Expected:
-
-- pending timezone value changes correctly
-- no sync action is triggered
-- no unrelated display-mode changes occur
-
-### Commit timezone
-
-While in timezone setting:
-
-- short press `MENU`
-
-Expected:
-
-- pending value is committed to `timezone_hours`
-- returns to normal clock display
-- operating state returns to:
-  - `OPERATING_SYNCING` if sync is still active
-  - otherwise `OPERATING_RUNNING`
-
-### Cancel timezone
-
-Re-enter timezone setting, change the value, then:
-
-- long press `MENU`
-
-Expected:
-
-- changes are discarded
-- returns to normal clock display
-
-Pass criteria for this section:
-
-- enter works reliably
-- UP/DOWN only affect timezone while editing
-- short MENU commits
-- long MENU cancels
-- no stuck setting state
-
----
-
-## 6. Manual sync button test
+## 4. Manual sync button test
 
 ### Sync while idle
 
@@ -237,11 +114,7 @@ Wait until no sync is active, then:
 
 - short press `SYNC`
 
-Expected:
-
-- manual WWVB sync starts
-- operating state becomes `OPERATING_SYNCING`
-- clock remains usable
+Expected Serial output should include a sync start request and WWVB start message.
 
 Pass if:
 
@@ -259,7 +132,7 @@ Expected:
 
 - current sync continues
 - no restart of the sync process
-- busy feedback is reported
+- busy feedback is printed
 
 Pass if:
 
@@ -268,9 +141,153 @@ Pass if:
 
 ---
 
-## 7. State interaction test
+## 5. Enter settings
 
-This verifies the hierarchy itself.
+From normal clock display:
+
+- hold `MENU`
+
+Expected:
+
+- operating state moves to `OPERATING_SETTING`
+- display state moves to `DISPLAY_SETTINGS`
+- current item becomes `SETTING_TIMEZONE`
+- Serial shows settings entry and state snapshot
+
+Pass if:
+
+- one long press enters settings reliably
+- no short-press display mode action occurs first
+
+---
+
+## 6. Timezone setting test
+
+### Adjust timezone
+
+While in `SETTING_TIMEZONE`:
+
+- press `UP` several times
+- press `DOWN` several times
+
+Expected:
+
+- pending timezone changes are printed
+- committed timezone does not change yet
+
+### Cancel timezone
+
+- change pending timezone
+- long press `MENU`
+
+Expected:
+
+- pending timezone resets to committed timezone
+- still remains in settings
+- current item remains timezone
+
+### Commit timezone
+
+- change pending timezone
+- short press `MENU`
+
+Expected:
+
+- committed timezone is updated
+- current item advances to `SETTING_DST`
+- Serial prints the commit and state snapshot
+
+Pass criteria:
+
+- cancel does not exit settings
+- commit advances to DST
+- only short MENU advances
+
+---
+
+## 7. DST setting test
+
+### Toggle DST
+
+While in `SETTING_DST`:
+
+- short press `UP`
+- short press `DOWN`
+
+Expected:
+
+- either button toggles pending DST
+- changes are shown in Serial
+
+### Cancel DST
+
+- toggle DST
+- long press `MENU`
+
+Expected:
+
+- pending DST resets to committed DST
+- still remains on DST item
+
+### Commit DST
+
+- toggle DST to desired value
+- short press `MENU`
+
+Expected:
+
+- committed DST is updated
+- current item advances to `SETTING_EXIT`
+
+Pass criteria:
+
+- both UP and DOWN can toggle DST
+- long press cancels only the current item
+- short press commits and advances
+
+---
+
+## 8. Exit item test
+
+While in `SETTING_EXIT`:
+
+### Back up from Exit
+
+- short press `UP` or `DOWN`
+
+Expected:
+
+- current item returns to `SETTING_DST`
+
+### Exit setup
+
+- short press `MENU`
+
+Expected:
+
+- settings mode exits
+- display state returns to `DISPLAY_CLOCK`
+- operating state returns to:
+  - `OPERATING_SYNCING` if sync is still active
+  - otherwise `OPERATING_RUNNING`
+
+### Long press on Exit
+
+- long press `MENU`
+
+Expected:
+
+- only Exit item cancellation behavior is reported
+- no exit unless explicitly committed with short MENU
+
+Pass criteria:
+
+- exit requires explicit Exit item + MENU short
+- UP/DOWN from Exit returns to DST
+
+---
+
+## 9. State interaction test
 
 ### Case A: sync active while normal display shown
 
@@ -284,12 +301,10 @@ Verify:
 - start sync
 - ensure normal display still behaves normally
 
-### Case B: enter timezone setting while syncing
-
-If allowed by current patch behavior:
+### Case B: enter settings while syncing
 
 - start sync
-- enter timezone setting with `MENU long`
+- enter settings with `MENU` long
 
 Expected:
 
@@ -300,21 +315,20 @@ Expected:
 Pass if:
 
 - no lockup
-- no corrupted UI state
+- no corrupted state
 - no loss of button function
 
 ---
 
-## 8. Stress test
-
-### Rapid user interaction
+## 10. Stress test
 
 Try for 2 to 3 minutes:
 
-- repeated MENU short presses
-- enter/exit timezone setting repeatedly
+- repeated MENU short presses on clock display
+- enter/exit settings repeatedly
+- cancel timezone and DST repeatedly
 - press SYNC while idle and while syncing
-- alternate between UP and DOWN quickly in timezone setting
+- alternate UP and DOWN quickly in timezone setting
 
 Pass if:
 
@@ -325,7 +339,7 @@ Pass if:
 
 ---
 
-## 9. Long runtime test
+## 11. Long runtime test
 
 Let the firmware run for at least:
 
@@ -336,7 +350,8 @@ During that time:
 
 - press buttons occasionally
 - start at least one manual sync
-- enter timezone setting at least once
+- enter settings at least once
+- commit timezone and DST at least once
 
 Pass if:
 
@@ -347,7 +362,7 @@ Pass if:
 
 ---
 
-## 10. Suggested test log template
+## 12. Suggested test log template
 
 Use something like this as you test:
 
@@ -358,17 +373,21 @@ Board setting:
 
 [ ] Boot OK
 [ ] RTC display OK
-[ ] MENU short OK
-[ ] MENU long OK
-[ ] UP short OK
-[ ] DOWN short OK
+[ ] MENU short cycles display mode
+[ ] MENU long enters settings
 [ ] SYNC short while idle OK
-[ ] SYNC short while syncing OK
-[ ] Enter timezone setting OK
+[ ] SYNC short while syncing reports busy
+[ ] Enter settings OK
 [ ] Timezone increment OK
 [ ] Timezone decrement OK
-[ ] Timezone commit OK
 [ ] Timezone cancel OK
+[ ] Timezone commit advances to DST
+[ ] DST toggle with UP OK
+[ ] DST toggle with DOWN OK
+[ ] DST cancel OK
+[ ] DST commit advances to Exit
+[ ] Exit item back-navigation OK
+[ ] Exit item commit exits settings
 [ ] No duplicate button triggers
 [ ] No freezes
 [ ] No resets
@@ -379,13 +398,13 @@ Notes:
 
 ---
 
-## 11. Highest-value failure observations to report back
+## 13. Highest-value failure observations to report back
 
 If anything fails, the most useful details to report are:
 
 - which button
 - short or long press
-- what state you were in
+- which setting item was active
 - what happened
 - what you expected
 - whether sync was active at the time
@@ -393,24 +412,8 @@ If anything fails, the most useful details to report are:
 Example:
 
 ```text
-MENU short while in DISPLAY_CLOCK triggered two increments.
-SYNC short during active sync restarted the sync instead of showing busy.
-UP short in timezone setting changed display mode instead of timezone.
+MENU short on SETTING_TIMEZONE exited settings instead of advancing to DST.
+MENU long on SETTING_DST exited settings instead of canceling DST changes.
+SYNC short while active restarted WWVB sync instead of reporting busy.
+UP short on SETTING_EXIT did not return to DST.
 ```
-
----
-
-## 12. Recommended order to run the tests
-
-Run them in this order:
-
-1. boot smoke test
-2. individual button short presses
-3. MENU long press
-4. timezone setting flow
-5. manual sync while idle
-6. manual sync while busy
-7. stress test
-8. long runtime test
-
-That order isolates problems efficiently.
