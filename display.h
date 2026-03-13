@@ -41,6 +41,9 @@ void draw_date(const DateTime &now);
 
 void display_handler(const DateTime &now, bool rtc_set, bool wwvb_active,
                      bool wwvb_done, bool wwvb_failed, bool wwvb_timed_out,
-                     uint16_t wwvb_elapsed_sec);
+                     uint16_t wwvb_elapsed_sec, uint8_t operating_state,
+                     uint8_t display_state, int8_t timezone_hours,
+                     bool dst_enabled, int8_t pending_timezone_hours,
+                     bool pending_dst_enabled);
 
 #endif // DISPLAY_H

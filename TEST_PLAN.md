@@ -1,370 +1,243 @@
 # TEST_PLAN.md
 
-## SignalClock Manual Test Procedure
+## Scope
 
-This test plan is intended for the current patch that introduces:
+This test plan covers the patch that:
 
-- `OperatingState`
-- `DisplayState`
-- `SettingItem`
-- manual sync button behavior
-- per-item settings commit on `MENU` short press
-- per-item cancel on `MENU` long press
-- explicit `Exit` settings item
-
----
+- expands `DisplayState`
+- renders explicit display views
+- keeps `UP` and `DOWN` inert outside settings
+- supports `DISPLAY_CLOCK`
+- supports `DISPLAY_STATUS`
+- supports `DISPLAY_SET_TIMEZONE`
+- keeps settings flow for DST and Exit
 
 ## 1. Pre-test setup
 
 ### Hardware
 
-Confirm the current assumed button wiring:
+Confirm button wiring:
 
 - `MENU` -> `A0` to GND
 - `UP` -> `A1` to GND
 - `DOWN` -> `A2` to GND
 - `SYNC` -> `A3` to GND
 
-All buttons should be wired as:
-
-- pin configured `INPUT_PULLUP`
-- pressed = `LOW`
+All buttons use `INPUT_PULLUP` and pressed = LOW.
 
 ### Software
 
-- Build and upload the patched branch.
+- Build and upload the patch.
 - Open Serial Monitor at 9600 baud.
-- Use the Serial Monitor as the primary verification tool for this patch.
 
----
-
-## 2. Expected behavioral model
-
-### Normal clock display
-
-- `MENU` short -> cycle display mode
-- `MENU` long -> enter settings
-- `UP` short -> switch to status display
-- `DOWN` short -> return to clock display
-- `SYNC` short -> start WWVB sync if idle, otherwise report busy
-
-### Settings model
-
-There are three settings items:
-
-1. `Timezone`
-2. `DST`
-3. `Exit`
-
-Behavior inside settings:
-
-- `UP/DOWN` modify the current item
-- `MENU` short -> commit current item and advance to the next item
-- `MENU` long -> cancel the current item change
-- `SYNC` short -> ignored while setting
-
-### Item-specific behavior
-
-#### Timezone
-- `UP` short increments pending timezone
-- `DOWN` short decrements pending timezone
-- `MENU` short commits timezone and advances to DST
-- `MENU` long cancels timezone edits
-
-#### DST
-- `UP` short toggles DST
-- `DOWN` short toggles DST
-- `MENU` short commits DST and advances to Exit
-- `MENU` long cancels DST edits
-
-#### Exit
-- `MENU` short exits settings
-- `MENU` long cancels Exit item only
-- `UP/DOWN` short goes back to DST
-
----
-
-## 3. Smoke test after boot
-
-### Expected result
-
-On power-up:
-
-- display initializes
-- RTC time is shown
-- normal clock behavior resumes
-- no immediate resets or lockups
-- if background sync starts automatically, the clock still remains usable
-- Serial Monitor shows an initial state snapshot
-
-### Pass criteria
-
-- no garbage on Serial
-- no frozen display
-- no repeated reboot loop
-- startup state print appears reasonable
-
----
-
-## 4. Manual sync button test
-
-### Sync while idle
-
-Wait until no sync is active, then:
-
-- short press `SYNC`
-
-Expected Serial output should include a sync start request and WWVB start message.
-
-Pass if:
-
-- sync starts once
-- no lockup
-- no restart loop
-
-### Sync while already syncing
-
-During an active WWVB sync:
-
-- short press `SYNC`
+## 2. Smoke test after boot
 
 Expected:
 
-- current sync continues
-- no restart of the sync process
-- busy feedback is printed
+- display initializes
+- RTC time is shown immediately
+- no reboot loop
+- no frozen display
+- WWVB background sync can start without blocking the display
 
 Pass if:
 
-- no interruption of the ongoing sync
-- no crash or strange state transition
+- display is alive
+- Serial output is readable
+- no lockups occur
 
----
+## 3. Normal display-state navigation
 
-## 5. Enter settings
+### CLOCK view default
 
-From normal clock display:
+On boot, expected display is `DISPLAY_CLOCK`.
+
+Verify:
+
+- analog clock is shown on the left
+- digital time/date is shown on the right
+- status line is visible
+
+### MENU short toggles to STATUS
+
+Press `MENU` briefly.
+
+Expected:
+
+- Serial prints `DISPLAY status`
+- display changes to the status view
+
+### MENU short toggles back to CLOCK
+
+Press `MENU` briefly again.
+
+Expected:
+
+- Serial prints `DISPLAY clock`
+- display returns to the clock view
+
+Pass if:
+
+- the display visibly changes between two distinct views
+- repeated MENU short presses continue to toggle correctly
+
+## 4. STATUS view rendering
+
+From the status view, verify the display shows:
+
+- title or obvious status layout
+- current time
+- operating state
+- RTC state
+- WWVB state
+- timezone and DST information
+
+Pass if:
+
+- status view is clearly different from the normal clock view
+- displayed status changes appropriately if sync becomes active or completes
+
+## 5. UP and DOWN outside settings
+
+From both `DISPLAY_CLOCK` and `DISPLAY_STATUS`:
+
+- press `UP` short
+- press `DOWN` short
+
+Expected:
+
+- Serial reports ignored outside settings
+- no display-state change
+- no setting value changes
+
+Pass if:
+
+- UP and DOWN are inert outside settings
+
+## 6. Manual sync button
+
+### Sync while idle
+
+Press `SYNC` short when not already syncing.
+
+Expected:
+
+- Serial prints `SYNC requested`
+- WWVB sync starts
+- operating state becomes syncing
+- current display view remains usable
+
+### Sync while already syncing
+
+Press `SYNC` short during active sync.
+
+Expected:
+
+- Serial prints `WWVB busy`
+- sync is not restarted
+
+Pass if:
+
+- sync starts only once
+- busy feedback appears on repeated presses during active sync
+
+## 7. Enter settings and timezone view
+
+From normal operation:
 
 - hold `MENU`
 
 Expected:
 
-- operating state moves to `OPERATING_SETTING`
-- display state moves to `DISPLAY_SETTINGS`
-- current item becomes `SETTING_TIMEZONE`
-- Serial shows settings entry and state snapshot
+- Serial prints settings entry
+- display changes to `DISPLAY_SET_TIMEZONE`
+
+Verify the timezone view shows:
+
+- clear indication that timezone is being edited
+- current pending timezone value
+- prompt or hint for button usage
+
+## 8. Timezone editing behavior
+
+While in `DISPLAY_SET_TIMEZONE`:
+
+- `UP` short increments pending timezone
+- `DOWN` short decrements pending timezone
+- `MENU` short commits timezone and advances to `DISPLAY_SET_DST`
+- `MENU` long cancels timezone edit and remains in timezone item
 
 Pass if:
 
-- one long press enters settings reliably
-- no short-press display mode action occurs first
+- value changes are visible in Serial
+- timezone view remains stable while editing
+- advancing moves to the next view
 
----
+## 9. DST view behavior
 
-## 6. Timezone setting test
+While in `DISPLAY_SET_DST`:
 
-### Adjust timezone
-
-While in `SETTING_TIMEZONE`:
-
-- press `UP` several times
-- press `DOWN` several times
-
-Expected:
-
-- pending timezone changes are printed
-- committed timezone does not change yet
-
-### Cancel timezone
-
-- change pending timezone
-- long press `MENU`
-
-Expected:
-
-- pending timezone resets to committed timezone
-- still remains in settings
-- current item remains timezone
-
-### Commit timezone
-
-- change pending timezone
-- short press `MENU`
-
-Expected:
-
-- committed timezone is updated
-- current item advances to `SETTING_DST`
-- Serial prints the commit and state snapshot
-
-Pass criteria:
-
-- cancel does not exit settings
-- commit advances to DST
-- only short MENU advances
-
----
-
-## 7. DST setting test
-
-### Toggle DST
-
-While in `SETTING_DST`:
-
-- short press `UP`
-- short press `DOWN`
-
-Expected:
-
-- either button toggles pending DST
-- changes are shown in Serial
-
-### Cancel DST
-
-- toggle DST
-- long press `MENU`
-
-Expected:
-
-- pending DST resets to committed DST
-- still remains on DST item
-
-### Commit DST
-
-- toggle DST to desired value
-- short press `MENU`
-
-Expected:
-
-- committed DST is updated
-- current item advances to `SETTING_EXIT`
-
-Pass criteria:
-
-- both UP and DOWN can toggle DST
-- long press cancels only the current item
-- short press commits and advances
-
----
-
-## 8. Exit item test
-
-While in `SETTING_EXIT`:
-
-### Back up from Exit
-
-- short press `UP` or `DOWN`
-
-Expected:
-
-- current item returns to `SETTING_DST`
-
-### Exit setup
-
-- short press `MENU`
-
-Expected:
-
-- settings mode exits
-- display state returns to `DISPLAY_CLOCK`
-- operating state returns to:
-  - `OPERATING_SYNCING` if sync is still active
-  - otherwise `OPERATING_RUNNING`
-
-### Long press on Exit
-
-- long press `MENU`
-
-Expected:
-
-- only Exit item cancellation behavior is reported
-- no exit unless explicitly committed with short MENU
-
-Pass criteria:
-
-- exit requires explicit Exit item + MENU short
-- UP/DOWN from Exit returns to DST
-
----
-
-## 9. State interaction test
-
-### Case A: sync active while normal display shown
-
-Expected design behavior:
-
-- clock can be syncing
-- display can still be in `DISPLAY_CLOCK`
+- `UP` short toggles DST
+- `DOWN` short toggles DST
+- `MENU` short commits DST and advances to `DISPLAY_SET_EXIT`
+- `MENU` long cancels DST edit
 
 Verify:
 
-- start sync
-- ensure normal display still behaves normally
+- display is distinct from timezone view
+- ON/OFF state is clear
 
-### Case B: enter settings while syncing
+## 10. Exit view behavior
 
-- start sync
-- enter settings with `MENU` long
+While in `DISPLAY_SET_EXIT`:
+
+- `MENU` short exits settings and returns to `DISPLAY_CLOCK`
+- `UP` short returns to `DISPLAY_SET_DST`
+- `DOWN` short returns to `DISPLAY_SET_DST`
+
+Verify:
+
+- Exit view is distinct from other settings views
+- exit returns to normal operation
+
+## 11. State interaction test
+
+### Sync active while using CLOCK or STATUS
+
+Start sync and toggle between `DISPLAY_CLOCK` and `DISPLAY_STATUS`.
 
 Expected:
 
-- editing works
-- sync may continue in background
-- leaving settings returns to syncing or running appropriately
+- both views still render correctly
+- status text reflects sync activity
+- no lockup occurs
+
+### Enter settings while syncing
+
+Start sync, then enter settings.
+
+Expected:
+
+- settings views still render
+- sync can continue in background
+- leaving settings returns to normal display without corruption
+
+## 12. Stress test
+
+For 2 to 3 minutes:
+
+- toggle CLOCK/STATUS repeatedly with MENU short
+- enter and leave timezone view repeatedly
+- adjust timezone quickly with UP/DOWN
+- trigger sync when idle and during sync
 
 Pass if:
 
-- no lockup
-- no corrupted state
-- no loss of button function
-
----
-
-## 10. Stress test
-
-Try for 2 to 3 minutes:
-
-- repeated MENU short presses on clock display
-- enter/exit settings repeatedly
-- cancel timezone and DST repeatedly
-- press SYNC while idle and while syncing
-- alternate UP and DOWN quickly in timezone setting
-
-Pass if:
-
-- no freeze
+- no display freeze
 - no reboot
-- no stuck button state
-- no obviously lost control state
+- no broken state transitions
 
----
-
-## 11. Long runtime test
-
-Let the firmware run for at least:
-
-- 15 minutes minimum
-- ideally 1 hour
-
-During that time:
-
-- press buttons occasionally
-- start at least one manual sync
-- enter settings at least once
-- commit timezone and DST at least once
-
-Pass if:
-
-- display remains alive
-- buttons still work
-- sync still works
-- no gradual instability appears
-
----
-
-## 12. Suggested test log template
-
-Use something like this as you test:
+## 13. Suggested test log
 
 ```text
 Build:
@@ -372,48 +245,22 @@ Upload:
 Board setting:
 
 [ ] Boot OK
-[ ] RTC display OK
-[ ] MENU short cycles display mode
-[ ] MENU long enters settings
+[ ] CLOCK view renders OK
+[ ] STATUS view renders OK
+[ ] MENU short toggles CLOCK/STATUS
+[ ] UP ignored outside settings
+[ ] DOWN ignored outside settings
 [ ] SYNC short while idle OK
-[ ] SYNC short while syncing reports busy
+[ ] SYNC short while syncing OK
 [ ] Enter settings OK
+[ ] Timezone view renders OK
 [ ] Timezone increment OK
 [ ] Timezone decrement OK
 [ ] Timezone cancel OK
-[ ] Timezone commit advances to DST
-[ ] DST toggle with UP OK
-[ ] DST toggle with DOWN OK
-[ ] DST cancel OK
-[ ] DST commit advances to Exit
-[ ] Exit item back-navigation OK
-[ ] Exit item commit exits settings
-[ ] No duplicate button triggers
+[ ] DST view renders OK
+[ ] DST toggle OK
+[ ] Exit view renders OK
+[ ] Exit returns to CLOCK
 [ ] No freezes
 [ ] No resets
-[ ] 15+ minute runtime OK
-
-Notes:
-```
-
----
-
-## 13. Highest-value failure observations to report back
-
-If anything fails, the most useful details to report are:
-
-- which button
-- short or long press
-- which setting item was active
-- what happened
-- what you expected
-- whether sync was active at the time
-
-Example:
-
-```text
-MENU short on SETTING_TIMEZONE exited settings instead of advancing to DST.
-MENU long on SETTING_DST exited settings instead of canceling DST changes.
-SYNC short while active restarted WWVB sync instead of reporting busy.
-UP short on SETTING_EXIT did not return to DST.
 ```

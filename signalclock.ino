@@ -3,9 +3,9 @@
 #include <TimeLib.h>
 #include <Wire.h>
 
+#include "debounce.h"
 #include "display.h"
 #include "es100.h"
-#include "debounce.h"
 
 // -----------------------------------------------------------------------------
 // State types
@@ -18,7 +18,10 @@ enum OperatingState : uint8_t {
 
 enum DisplayState : uint8_t {
   DISPLAY_CLOCK = 0,
-  DISPLAY_SETTINGS
+  DISPLAY_STATUS,
+  DISPLAY_SET_TIMEZONE,
+  DISPLAY_SET_DST,
+  DISPLAY_SET_EXIT
 };
 
 enum SettingItem : uint8_t {
@@ -52,7 +55,6 @@ static SettingItem current_setting_item = SETTING_TIMEZONE;
 
 static int8_t timezone_hours = 0;
 static bool dst_enabled = false;
-static uint8_t display_mode = 0;
 
 static int8_t pending_timezone_hours = 0;
 static bool pending_dst_enabled = false;
@@ -62,27 +64,38 @@ static bool pending_dst_enabled = false;
 // -----------------------------------------------------------------------------
 static const __FlashStringHelper *operating_state_name(OperatingState state) {
   switch (state) {
-    case OPERATING_RUNNING: return F("RUNNING");
-    case OPERATING_SYNCING: return F("SYNCING");
-    case OPERATING_SETTING: return F("SETTING");
-    default: return F("UNKNOWN");
+  case OPERATING_RUNNING:
+    return F("RUNNING");
+  case OPERATING_SYNCING:
+    return F("SYNCING");
+  case OPERATING_SETTING:
+    return F("SETTING");
+  default:
+    return F("UNKNOWN");
   }
 }
 
 static const __FlashStringHelper *display_state_name(DisplayState state) {
   switch (state) {
-    case DISPLAY_CLOCK: return F("CLOCK");
-    case DISPLAY_SETTINGS: return F("SETTINGS");
-    default: return F("UNKNOWN");
+  case DISPLAY_CLOCK:
+    return F("CLOCK");
+  case DISPLAY_SET_TIMEZONE:
+    return F("SETTING TIMEZONE");
+  default:
+    return F("UNKNOWN");
   }
 }
 
 static const __FlashStringHelper *setting_item_name(SettingItem item) {
   switch (item) {
-    case SETTING_TIMEZONE: return F("TIMEZONE");
-    case SETTING_DST: return F("DST");
-    case SETTING_EXIT: return F("EXIT");
-    default: return F("UNKNOWN");
+  case SETTING_TIMEZONE:
+    return F("TIMEZONE");
+  case SETTING_DST:
+    return F("DST");
+  case SETTING_EXIT:
+    return F("EXIT");
+  default:
+    return F("UNKNOWN");
   }
 }
 
@@ -144,7 +157,7 @@ static void enter_settings(void) {
   pending_timezone_hours = timezone_hours;
   pending_dst_enabled = dst_enabled;
   operating_state = OPERATING_SETTING;
-  display_state = DISPLAY_SETTINGS;
+  display_state = DISPLAY_SET_TIMEZONE;
   current_setting_item = SETTING_TIMEZONE;
   Serial.println(F("SETTINGS enter"));
   print_state_summary();
@@ -160,43 +173,43 @@ static void exit_settings(void) {
 
 static void cancel_current_setting(void) {
   switch (current_setting_item) {
-    case SETTING_TIMEZONE:
-      pending_timezone_hours = timezone_hours;
-      Serial.println(F("TIMEZONE canceled"));
-      break;
-    case SETTING_DST:
-      pending_dst_enabled = dst_enabled;
-      Serial.println(F("DST canceled"));
-      break;
-    case SETTING_EXIT:
-      Serial.println(F("EXIT item has nothing to cancel"));
-      break;
-    default:
-      break;
+  case SETTING_TIMEZONE:
+    pending_timezone_hours = timezone_hours;
+    Serial.println(F("TIMEZONE canceled"));
+    break;
+  case SETTING_DST:
+    pending_dst_enabled = dst_enabled;
+    Serial.println(F("DST canceled"));
+    break;
+  case SETTING_EXIT:
+    Serial.println(F("EXIT item has nothing to cancel"));
+    break;
+  default:
+    break;
   }
   print_state_summary();
 }
 
 static void commit_current_setting_and_advance(void) {
   switch (current_setting_item) {
-    case SETTING_TIMEZONE:
-      timezone_hours = pending_timezone_hours;
-      current_setting_item = SETTING_DST;
-      Serial.print(F("TIMEZONE committed: "));
-      Serial.println(timezone_hours);
-      break;
-    case SETTING_DST:
-      dst_enabled = pending_dst_enabled;
-      current_setting_item = SETTING_EXIT;
-      Serial.print(F("DST committed: "));
-      Serial.println(dst_enabled ? F("ON") : F("OFF"));
-      break;
-    case SETTING_EXIT:
-      Serial.println(F("EXIT selected"));
-      exit_settings();
-      return;
-    default:
-      break;
+  case SETTING_TIMEZONE:
+    timezone_hours = pending_timezone_hours;
+    current_setting_item = SETTING_DST;
+    Serial.print(F("TIMEZONE committed: "));
+    Serial.println(timezone_hours);
+    break;
+  case SETTING_DST:
+    dst_enabled = pending_dst_enabled;
+    current_setting_item = SETTING_EXIT;
+    Serial.print(F("DST committed: "));
+    Serial.println(dst_enabled ? F("ON") : F("OFF"));
+    break;
+  case SETTING_EXIT:
+    Serial.println(F("EXIT selected"));
+    exit_settings();
+    return;
+  default:
+    break;
   }
   print_state_summary();
 }
@@ -312,9 +325,13 @@ static void process_running_button(ButtonId id, uint8_t events) {
   }
 
   if ((id == BUTTON_MENU) && (events & BUTTON_EVENT_SHORT)) {
-    display_mode = (uint8_t)((display_mode + 1U) % 4U);
-    Serial.print(F("DISPLAY mode="));
-    Serial.println(display_mode);
+    if (display_state == DISPLAY_CLOCK) {
+      display_state = DISPLAY_STATUS;
+      Serial.println(F("DISPLAY status"));
+    } else {
+      display_state = DISPLAY_CLOCK;
+      Serial.println(F("DISPLAY clock"));
+    }
     return;
   }
 
@@ -352,46 +369,46 @@ static void process_setting_button(ButtonId id, uint8_t events) {
 
   if ((id == BUTTON_UP) && (events & BUTTON_EVENT_SHORT)) {
     switch (current_setting_item) {
-      case SETTING_TIMEZONE:
-        if (pending_timezone_hours < 14) {
-          pending_timezone_hours++;
-        }
-        Serial.print(F("TIMEZONE pending="));
-        Serial.println(pending_timezone_hours);
-        break;
-      case SETTING_DST:
-        pending_dst_enabled = !pending_dst_enabled;
-        Serial.print(F("DST pending="));
-        Serial.println(pending_dst_enabled ? F("ON") : F("OFF"));
-        break;
-      case SETTING_EXIT:
-        move_to_previous_setting_item();
-        break;
-      default:
-        break;
+    case SETTING_TIMEZONE:
+      if (pending_timezone_hours < 14) {
+        pending_timezone_hours++;
+      }
+      Serial.print(F("TIMEZONE pending="));
+      Serial.println(pending_timezone_hours);
+      break;
+    case SETTING_DST:
+      pending_dst_enabled = !pending_dst_enabled;
+      Serial.print(F("DST pending="));
+      Serial.println(pending_dst_enabled ? F("ON") : F("OFF"));
+      break;
+    case SETTING_EXIT:
+      move_to_previous_setting_item();
+      break;
+    default:
+      break;
     }
     return;
   }
 
   if ((id == BUTTON_DOWN) && (events & BUTTON_EVENT_SHORT)) {
     switch (current_setting_item) {
-      case SETTING_TIMEZONE:
-        if (pending_timezone_hours > -12) {
-          pending_timezone_hours--;
-        }
-        Serial.print(F("TIMEZONE pending="));
-        Serial.println(pending_timezone_hours);
-        break;
-      case SETTING_DST:
-        pending_dst_enabled = !pending_dst_enabled;
-        Serial.print(F("DST pending="));
-        Serial.println(pending_dst_enabled ? F("ON") : F("OFF"));
-        break;
-      case SETTING_EXIT:
-        move_to_previous_setting_item();
-        break;
-      default:
-        break;
+    case SETTING_TIMEZONE:
+      if (pending_timezone_hours > -12) {
+        pending_timezone_hours--;
+      }
+      Serial.print(F("TIMEZONE pending="));
+      Serial.println(pending_timezone_hours);
+      break;
+    case SETTING_DST:
+      pending_dst_enabled = !pending_dst_enabled;
+      Serial.print(F("DST pending="));
+      Serial.println(pending_dst_enabled ? F("ON") : F("OFF"));
+      break;
+    case SETTING_EXIT:
+      move_to_previous_setting_item();
+      break;
+    default:
+      break;
     }
     return;
   }
@@ -410,17 +427,20 @@ static void process_button_event(ButtonId id, uint8_t events) {
 }
 
 static void service_buttons(void) {
-  const ButtonId buttons[] = {
-    BUTTON_MENU,
-    BUTTON_UP,
-    BUTTON_DOWN,
-    BUTTON_SYNC
-  };
+  const ButtonId buttons[] = {BUTTON_MENU, BUTTON_UP, BUTTON_DOWN, BUTTON_SYNC};
 
   for (uint8_t i = 0; i < (sizeof(buttons) / sizeof(buttons[0])); ++i) {
     const uint8_t events = debounce_take_events(buttons[i]);
     process_button_event(buttons[i], events);
   }
+}
+
+static int8_t get_total_display_offset_hours(void) {
+  return timezone_hours + (dst_enabled ? 1 : 0);
+}
+
+static DateTime apply_display_offset(const DateTime &utc_now) {
+  return utc_now + TimeSpan((int32_t)get_total_display_offset_hours() * 3600L);
 }
 
 // -----------------------------------------------------------------------------
@@ -435,20 +455,27 @@ void setup() {
   Wire.begin();
   Wire.setClock(100000);
   // Uncomment if your AVR core supports it:
-  // Wire.setWireTimeout(25000, true);
+  Wire.setWireTimeout(25000, true);
 
   setup_display();
   debounce_init();
   setup_rtc_local();
 
-  // Show RTC immediately, then sync in background.
-  prev_rtc_now = rtc.now();
+  DateTime rtc_now_utc = rtc.now();
+  prev_rtc_now = apply_display_offset(rtc_now_utc);
   rtc_set = !rtc.lostPower();
 
+  operating_state = OPERATING_RUNNING;
+  display_state = DISPLAY_CLOCK;
+
+  // Show RTC immediately, then sync in background.
   start_wwvb_background_sync();
 
   display_handler(prev_rtc_now, rtc_set, wwvb_active, wwvb_done, wwvb_failed,
-                  wwvb_timed_out, wwvb_elapsed_seconds());
+                  wwvb_timed_out, wwvb_elapsed_seconds(),
+                  static_cast<uint8_t>(operating_state),
+                  static_cast<uint8_t>(display_state), timezone_hours,
+                  dst_enabled, pending_timezone_hours, pending_dst_enabled);
 }
 
 // -----------------------------------------------------------------------------
@@ -458,17 +485,21 @@ void loop() {
   service_buttons();
   service_wwvb_background_sync();
 
-  DateTime rtc_now = rtc.now();
+  DateTime rtc_now_utc = rtc.now();
+  DateTime display_now = apply_display_offset(rtc_now_utc);
 
-  const bool second_changed = (rtc_now.second() != prev_rtc_now.second());
+  const bool second_changed = (display_now.second() != prev_rtc_now.second());
   const bool syncing_refresh_due =
       wwvb_active && ((uint32_t)(millis() - last_display_refresh_ms) >= 250UL);
 
   if (second_changed || syncing_refresh_due) {
-    prev_rtc_now = rtc_now;
+    prev_rtc_now = display_now;
     last_display_refresh_ms = millis();
 
-    display_handler(rtc_now, rtc_set, wwvb_active, wwvb_done, wwvb_failed,
-                    wwvb_timed_out, wwvb_elapsed_seconds());
+    display_handler(display_now, rtc_set, wwvb_active, wwvb_done, wwvb_failed,
+                    wwvb_timed_out, wwvb_elapsed_seconds(),
+                    static_cast<uint8_t>(operating_state),
+                    static_cast<uint8_t>(display_state), timezone_hours,
+                    dst_enabled, pending_timezone_hours, pending_dst_enabled);
   }
 }
