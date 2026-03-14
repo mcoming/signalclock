@@ -73,6 +73,8 @@ One side of each switch goes to the MCU pin and the other side goes to GND. Pres
 ```text
 signalclock/
   signalclock.ino
+  signalclock_app.cpp
+  signalclock_app.h
   display.cpp
   display.h
   es100.cpp
@@ -99,3 +101,8 @@ Recommended Arduino IDE settings:
 - Avoid `String` on AVR.
 - Prefer non-blocking foreground logic.
 - Update `README.md`, `TEST_PLAN.md`, and `DESIGN.md` with each architectural patch.
+
+
+## Sketch structure
+
+The `.ino` file is intentionally kept minimal and only forwards Arduino entry points to `signalclock_app.cpp`. This makes static analysis and future maintenance easier by keeping the application logic in normal C++ translation units.

@@ -24,7 +24,8 @@ The clock is intended to:
 
 | File | Responsibility |
 |---|---|
-| `signalclock.ino` | top-level control flow, states, button dispatch, sync orchestration |
+| `signalclock.ino` | minimal Arduino entry wrapper (`setup()` / `loop()`) |
+| `signalclock_app.cpp/.h` | top-level control flow, states, button dispatch, sync orchestration |
 | `display.cpp/.h` | rendering of display views |
 | `es100.cpp/.h` | WWVB receiver control and state machine |
 | `debounce.cpp/.h` | deterministic button sampling and event generation |
@@ -144,3 +145,7 @@ When future architectural patches are made, update:
 - `README.md`
 - `TEST_PLAN.md`
 - `DESIGN.md`
+
+## Sketch refactor note
+
+The project now keeps `signalclock.ino` intentionally tiny. The application logic lives in `signalclock_app.cpp/.h`, which improves static-analysis behavior and keeps the Arduino-specific entry file minimal.

@@ -1,8 +1,20 @@
-*.zip
-*.o
-*.obj
+# PlatformIO
+.pio/
+.vscode/
+
+# Build artifacts
 *.elf
 *.hex
 *.bin
 *.map
+*.o
+*.a
+*.d
+
+# Logs
+*.log
+
+# OS/editor noise
 .DS_Store
+Thumbs.db
+*~

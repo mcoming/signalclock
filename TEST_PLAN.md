@@ -2,7 +2,7 @@
 
 ## Scope
 
-This test plan covers the patch that:
+This test plan covers the patch that refactors the sketch into a minimal `.ino` wrapper and preserves existing runtime behavior. It also covers the existing display-state behavior, specifically that the patch:
 
 - expands `DisplayState`
 - renders explicit display views
