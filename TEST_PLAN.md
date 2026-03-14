@@ -264,3 +264,13 @@ Board setting:
 [ ] No freezes
 [ ] No resets
 ```
+
+
+## 14. ES100 prune regression checks
+
+Verify after this patch:
+
+- manual sync still starts and reports busy while active
+- successful WWVB sync still updates the RTC
+- timeout and failure paths still behave as before
+- the application retains the last successful sync UTC timestamp internally

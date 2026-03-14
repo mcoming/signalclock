@@ -139,6 +139,16 @@ bool i2c_read_regs(uint8_t reg, uint8_t *buf, uint8_t len) {
 
 uint8_t bcd_to_bin(uint8_t x) { return (uint8_t)(x - 6 * (x >> 4)); }
 
+DateTime compensate_irq_latency_internal(const DateTime &dt, uint32_t irq_ms) {
+  const uint32_t age_ms = millis() - irq_ms;
+
+  if (age_ms >= 1000UL) {
+    return dt + TimeSpan(age_ms / 1000UL);
+  }
+
+  return dt;
+}
+
 // -----------------------------------------------------------------------------
 // Internal helpers matching original ES100 sequence
 // -----------------------------------------------------------------------------
@@ -308,6 +318,9 @@ Es100Result es100_service(DateTime &out_dt) {
 
     if (irq_status == ES100_IRQ_STATUS_RX_COMPLETE) {
       if (es100_read_time_internal(out_dt)) {
+        if (g_last_irq_ms != 0UL) {
+          out_dt = compensate_irq_latency_internal(out_dt, g_last_irq_ms);
+        }
         irq_detach();
         hw_stop();
         g_state = ES100_STATE_DONE;
@@ -327,20 +340,4 @@ Es100Result es100_service(DateTime &out_dt) {
   }
 }
 
-void es100_stop(void) {
-  irq_detach();
-  hw_stop();
-  g_state = ES100_STATE_IDLE;
-}
-
-Es100State es100_get_state(void) { return g_state; }
-
-bool es100_is_busy(void) {
-  return (g_state == ES100_STATE_WAIT_IRQ ||
-          g_state == ES100_STATE_IRQ_PENDING || g_state == ES100_STATE_READING);
-}
-
-bool es100_irq_seen(void) { return (g_last_irq_ms != 0UL); }
-
-uint32_t es100_get_last_irq_ms(void) { return g_last_irq_ms; }
 

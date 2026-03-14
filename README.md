@@ -110,4 +110,10 @@ The `.ino` file is intentionally kept minimal and only forwards Arduino entry po
 
 ## ES100 driver API
 
-The ES100 driver public API is intentionally kept small. Low-level inspection helpers that were only used for debugging have been removed from the public header so the driver exposes only the runtime control surface needed by the application.
+The ES100 driver public API is intentionally kept minimal and now exposes only:
+
+- `es100_init()`
+- `es100_start_receive()`
+- `es100_service()`
+
+Low-level inspection helpers remain file-local inside `es100.cpp`.

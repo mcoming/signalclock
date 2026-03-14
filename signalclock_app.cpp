@@ -45,6 +45,8 @@ static bool wwvb_failed = false;
 static bool wwvb_timed_out = false;
 
 static DateTime prev_rtc_now(2000, 1, 1, 0, 0, 0);
+static DateTime last_successful_sync_utc(2000, 1, 1, 0, 0, 0);
+static bool last_successful_sync_valid = false;
 
 static uint32_t wwvb_wait_start_ms = 0;
 static uint32_t last_display_refresh_ms = 0;
@@ -122,16 +124,6 @@ static void print_state_summary(void) {
   Serial.print(dst_enabled ? F("ON") : F("OFF"));
   Serial.print(F(" pending_dst="));
   Serial.println(pending_dst_enabled ? F("ON") : F("OFF"));
-}
-
-static DateTime compensate_irq_latency(const DateTime &dt, uint32_t irq_ms) {
-  const uint32_t age_ms = millis() - irq_ms;
-
-  if (age_ms >= 1000UL) {
-    return dt + TimeSpan(age_ms / 1000UL);
-  }
-
-  return dt;
 }
 
 static void fatal_blink_forever(uint16_t period_ms) {
@@ -277,13 +269,9 @@ static void service_wwvb_background_sync(void) {
   Es100Result result = es100_service(wwvb_dt);
 
   if (result == ES100_RESULT_SUCCESS) {
-    DateTime corrected = wwvb_dt;
-
-    if (es100_irq_seen()) {
-      corrected = compensate_irq_latency(wwvb_dt, es100_get_last_irq_ms());
-    }
-
-    rtc.adjust(corrected);
+    rtc.adjust(wwvb_dt);
+    last_successful_sync_utc = wwvb_dt;
+    last_successful_sync_valid = true;
 
     rtc_set = true;
     wwvb_active = false;

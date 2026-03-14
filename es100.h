@@ -50,11 +50,5 @@ enum Es100Result : uint8_t {
 void es100_init(TwoWire& wirePort = Wire);
 bool es100_start_receive(uint32_t timeout_ms = ES100_DEFAULT_TIMEOUT_MS);
 Es100Result es100_service(DateTime& out_dt);
-void es100_stop(void);
-
-Es100State es100_get_state(void);
-bool es100_is_busy(void);
-bool es100_irq_seen(void);
-uint32_t es100_get_last_irq_ms(void);
 
 #endif  // ES100_H
