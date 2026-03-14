@@ -152,6 +152,28 @@ bool es100_get_device_id_internal(uint8_t &device_id) {
   return true;
 }
 
+
+bool es100_get_irq_status_internal(uint8_t &irq_status) {
+  return i2c_read_regs(ES100_IRQ_STATUS_REG, &irq_status, 1);
+}
+
+bool es100_read_time_internal(DateTime &out_dt) {
+  uint8_t raw[6] = {0};
+  if (!i2c_read_regs(ES100_YEAR_REG, raw, sizeof(raw))) {
+    return false;
+  }
+
+  const uint16_t year = (uint16_t)(2000 + bcd_to_bin(raw[0]));
+  const uint8_t month = bcd_to_bin(raw[1]);
+  const uint8_t day = bcd_to_bin(raw[2]);
+  const uint8_t hour = bcd_to_bin(raw[3]);
+  const uint8_t minute = bcd_to_bin(raw[4]);
+  const uint8_t second = bcd_to_bin(raw[5]);
+
+  out_dt = DateTime(year, month, day, hour, minute, second);
+  return true;
+}
+
 bool hw_start_receive() {
 
   digitalWrite(ES100_EN_PIN, LOW);
@@ -275,7 +297,7 @@ Es100Result es100_service(DateTime &out_dt) {
     g_state = ES100_STATE_READING;
 
     uint8_t irq_status = 0;
-    if (!es100_get_irq_status(irq_status)) {
+    if (!es100_get_irq_status_internal(irq_status)) {
       irq_detach();
       hw_stop();
       g_state = ES100_STATE_FAILED;
@@ -285,7 +307,7 @@ Es100Result es100_service(DateTime &out_dt) {
     g_last_irq_status = irq_status;
 
     if (irq_status == ES100_IRQ_STATUS_RX_COMPLETE) {
-      if (es100_read_time(out_dt)) {
+      if (es100_read_time_internal(out_dt)) {
         irq_detach();
         hw_stop();
         g_state = ES100_STATE_DONE;
@@ -322,48 +344,3 @@ bool es100_irq_seen(void) { return (g_last_irq_ms != 0UL); }
 
 uint32_t es100_get_last_irq_ms(void) { return g_last_irq_ms; }
 
-uint8_t es100_get_last_irq_count(void) { return g_last_irq_count; }
-
-uint8_t es100_get_last_irq_status(void) { return g_last_irq_status; }
-
-bool es100_get_last_i2c_ok(void) { return g_last_i2c_ok; }
-
-bool es100_get_irq_status(uint8_t &irq_status) {
-  uint8_t v = 0;
-  if (!i2c_read_regs(ES100_IRQ_STATUS_REG, &v, 1)) {
-    return false;
-  }
-
-  irq_status = v;
-  return true;
-}
-
-bool es100_read_time(DateTime &out_dt) {
-  uint8_t raw[6];
-
-  if (!i2c_read_regs(ES100_YEAR_REG, raw, sizeof(raw))) {
-    return false;
-  }
-
-  // Match original code behavior
-  const uint16_t year = bcd_to_bin(raw[0]);
-  const uint8_t month = bcd_to_bin(raw[1]);
-  const uint8_t day = bcd_to_bin(raw[2]);
-  const uint8_t hour = bcd_to_bin(raw[3]);
-  const uint8_t minute = bcd_to_bin(raw[4]);
-  const uint8_t second = bcd_to_bin(raw[5]);
-
-  if (month < 1 || month > 12)
-    return false;
-  if (day < 1 || day > 31)
-    return false;
-  if (hour > 23)
-    return false;
-  if (minute > 59)
-    return false;
-  if (second > 59)
-    return false;
-
-  out_dt = DateTime(year, month, day, hour, minute, second);
-  return out_dt.isValid();
-}

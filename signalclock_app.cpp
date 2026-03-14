@@ -316,8 +316,7 @@ static void service_wwvb_background_sync(void) {
       operating_state = OPERATING_RUNNING;
     }
 
-    Serial.print(F("WWVB failed, irq_status=0x"));
-    Serial.println(es100_get_last_irq_status(), HEX);
+    Serial.println(F("WWVB failed"));
   }
 }
 

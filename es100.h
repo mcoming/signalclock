@@ -56,13 +56,5 @@ Es100State es100_get_state(void);
 bool es100_is_busy(void);
 bool es100_irq_seen(void);
 uint32_t es100_get_last_irq_ms(void);
-uint8_t es100_get_last_irq_count(void);
-
-uint8_t es100_get_last_irq_status(void);
-bool es100_get_last_i2c_ok(void);
-
-// Low-level helpers retained for inspection / debugging
-bool es100_get_irq_status(uint8_t& irq_status);
-bool es100_read_time(DateTime& out_dt);
 
 #endif  // ES100_H

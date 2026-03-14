@@ -138,6 +138,8 @@ Design rule: keep ISRs short and deterministic. No display, Serial, or I2C work 
 
 The ES100 driver owns its own receive state machine and should remain conservative because startup and IRQ sequencing are timing-sensitive.
 
+The ES100 public API should remain minimal. Low-level register inspection helpers that are only useful for debugging should stay file-local inside `es100.cpp` unless the application truly needs them.
+
 ## Future patch guidance
 
 When future architectural patches are made, update:

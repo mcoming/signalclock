@@ -106,3 +106,8 @@ Recommended Arduino IDE settings:
 ## Sketch structure
 
 The `.ino` file is intentionally kept minimal and only forwards Arduino entry points to `signalclock_app.cpp`. This makes static analysis and future maintenance easier by keeping the application logic in normal C++ translation units.
+
+
+## ES100 driver API
+
+The ES100 driver public API is intentionally kept small. Low-level inspection helpers that were only used for debugging have been removed from the public header so the driver exposes only the runtime control surface needed by the application.
