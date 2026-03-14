@@ -2,15 +2,7 @@
 
 ## Scope
 
-This test plan covers the patch that refactors the sketch into a minimal `.ino` wrapper and preserves existing runtime behavior. It also covers the existing display-state behavior, specifically that the patch:
-
-- expands `DisplayState`
-- renders explicit display views
-- keeps `UP` and `DOWN` inert outside settings
-- supports `DISPLAY_CLOCK`
-- supports `DISPLAY_STATUS`
-- supports `DISPLAY_SET_TIMEZONE`
-- keeps settings flow for DST and Exit
+This test plan covers the compact settings-flow patch that adds manual UTC time entry, timezone editing, DST editing, and SYNC enable editing while preserving the existing background WWVB behavior.
 
 ## 1. Pre-test setup
 
@@ -38,7 +30,7 @@ Expected:
 - RTC time is shown immediately
 - no reboot loop
 - no frozen display
-- WWVB background sync can start without blocking the display
+- WWVB background sync starts only if SYNC defaults to ON
 
 Pass if:
 
@@ -85,12 +77,12 @@ Pass if:
 
 From the status view, verify the display shows:
 
-- title or obvious status layout
 - current time
 - operating state
 - RTC state
 - WWVB state
 - timezone and DST information
+- SYNC ON/OFF state
 
 Pass if:
 
@@ -116,9 +108,9 @@ Pass if:
 
 ## 6. Manual sync button
 
-### Sync while idle
+### Sync while idle and enabled
 
-Press `SYNC` short when not already syncing.
+Press `SYNC` short when not already syncing and `SYNC` setting is ON.
 
 Expected:
 
@@ -136,12 +128,16 @@ Expected:
 - Serial prints `WWVB busy`
 - sync is not restarted
 
-Pass if:
+### Sync while disabled
 
-- sync starts only once
-- busy feedback appears on repeated presses during active sync
+Disable sync in settings, return to clock, then press `SYNC` short.
 
-## 7. Enter settings and timezone view
+Expected:
+
+- Serial prints that sync is ignored because SYNC is OFF
+- WWVB sync does not start
+
+## 7. Enter settings and UTC time view
 
 From normal operation:
 
@@ -150,57 +146,95 @@ From normal operation:
 Expected:
 
 - Serial prints settings entry
-- display changes to `DISPLAY_SET_TIMEZONE`
+- display changes to `DISPLAY_SET_UTC_TIME`
+- the screen shows `HH:MM:SS UTC`
+- only the hour field blinks initially
 
-Verify the timezone view shows:
+## 8. UTC editing behavior
 
-- clear indication that timezone is being edited
-- current pending timezone value
-- prompt or hint for button usage
+While in the UTC editor:
 
-## 8. Timezone editing behavior
-
-While in `DISPLAY_SET_TIMEZONE`:
-
-- `UP` short increments pending timezone
-- `DOWN` short decrements pending timezone
-- `MENU` short commits timezone and advances to `DISPLAY_SET_DST`
-- `MENU` long cancels timezone edit and remains in timezone item
+- `UP/DOWN` wrap-adjust the active field
+- `MENU` short advances `HH -> MM -> SS -> HH`
+- the displayed pending UTC value changes only when `UP` or `DOWN` is pressed
+- the displayed pending UTC value does not continue tracking the live RTC seconds
 
 Pass if:
 
-- value changes are visible in Serial
-- timezone view remains stable while editing
-- advancing moves to the next view
+- active-field blink is obvious
+- wraparound works for hour, minute, and second
+- short MENU only advances the field selection
 
-## 9. DST view behavior
+## 9. UTC commit policy
+
+### Manual UTC commit with SYNC OFF
+
+- enter settings
+- advance to `SYNC`
+- set `SYNC OFF`
+- exit settings
+- re-enter settings
+- change UTC time
+- long-press `MENU` while editing HH, MM, or SS
+
+Expected:
+
+- Serial prints the UTC commit
+- RTC is updated
+- settings advance to timezone
+
+### Manual UTC commit with SYNC ON
+
+- enter settings with `SYNC ON`
+- change UTC time
+- long-press `MENU` while editing HH, MM, or SS
+
+Expected:
+
+- Serial reports that UTC commit is skipped because SYNC is ON
+- settings still advance to timezone
+- RTC is not overwritten by the manual edit
+
+## 10. Timezone behavior
+
+While in `DISPLAY_SET_TIMEZONE`:
+
+- `UP` short increments timezone with wrap `+14 -> -12`
+- `DOWN` short decrements timezone with wrap `-12 -> +14`
+- `MENU` short commits timezone and advances to DST
+
+Pass if:
+
+- wrap behavior is correct
+- timezone change is visible after exiting settings
+
+## 11. DST behavior
 
 While in `DISPLAY_SET_DST`:
 
 - `UP` short toggles DST
 - `DOWN` short toggles DST
-- `MENU` short commits DST and advances to `DISPLAY_SET_EXIT`
-- `MENU` long cancels DST edit
+- `MENU` short commits DST and advances to SYNC
 
 Verify:
 
-- display is distinct from timezone view
 - ON/OFF state is clear
+- only the active value blinks
 
-## 10. Exit view behavior
+## 12. SYNC behavior in settings
 
-While in `DISPLAY_SET_EXIT`:
+While in `DISPLAY_SET_SYNC`:
 
-- `MENU` short exits settings and returns to `DISPLAY_CLOCK`
-- `UP` short returns to `DISPLAY_SET_DST`
-- `DOWN` short returns to `DISPLAY_SET_DST`
+- `UP` short toggles SYNC
+- `DOWN` short toggles SYNC
+- `MENU` short commits SYNC and exits settings to `DISPLAY_CLOCK`
 
-Verify:
+Pass if:
 
-- Exit view is distinct from other settings views
-- exit returns to normal operation
+- SYNC setting persists after leaving settings for the current runtime session
+- normal clock view is shown after exit
 
-## 11. State interaction test
+## 13. State interaction test
 
 ### Sync active while using CLOCK or STATUS
 
@@ -219,16 +253,20 @@ Start sync, then enter settings.
 Expected:
 
 - settings views still render
-- sync can continue in background
+- no new sync starts while in settings
+- the active sync is allowed to finish
+- if sync completes, RTC updates without changing the visible pending edit fields
 - leaving settings returns to normal display without corruption
 
-## 12. Stress test
+## 14. Stress test
 
 For 2 to 3 minutes:
 
 - toggle CLOCK/STATUS repeatedly with MENU short
-- enter and leave timezone view repeatedly
+- enter and leave settings repeatedly
+- cycle HH/MM/SS repeatedly with MENU short
 - adjust timezone quickly with UP/DOWN
+- toggle DST and SYNC repeatedly
 - trigger sync when idle and during sync
 
 Pass if:
@@ -236,8 +274,9 @@ Pass if:
 - no display freeze
 - no reboot
 - no broken state transitions
+- blink remains stable while editing
 
-## 13. Suggested test log
+## 15. Suggested test log
 
 ```text
 Build:
@@ -252,25 +291,17 @@ Board setting:
 [ ] DOWN ignored outside settings
 [ ] SYNC short while idle OK
 [ ] SYNC short while syncing OK
+[ ] SYNC short while disabled blocked
 [ ] Enter settings OK
-[ ] Timezone view renders OK
-[ ] Timezone increment OK
-[ ] Timezone decrement OK
-[ ] Timezone cancel OK
-[ ] DST view renders OK
+[ ] UTC edit screen renders OK
+[ ] UTC hour wrap OK
+[ ] UTC minute wrap OK
+[ ] UTC second wrap OK
+[ ] UTC commit with SYNC OFF OK
+[ ] UTC commit with SYNC ON blocked
+[ ] Timezone wrap OK
 [ ] DST toggle OK
-[ ] Exit view renders OK
-[ ] Exit returns to CLOCK
-[ ] No freezes
-[ ] No resets
+[ ] SYNC toggle OK
+[ ] Exit from SYNC returns to clock OK
+[ ] Sync completion during settings preserves visible edit values
 ```
-
-
-## 14. ES100 prune regression checks
-
-Verify after this patch:
-
-- manual sync still starts and reports busy while active
-- successful WWVB sync still updates the RTC
-- timeout and failure paths still behave as before
-- the application retains the last successful sync UTC timestamp internally

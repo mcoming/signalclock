@@ -39,12 +39,6 @@ constexpr int16_t CLOCK_CENTER_X = 32;
 constexpr int16_t CLOCK_CENTER_Y = 32;
 constexpr int16_t CLOCK_RADIUS = 30;
 
-constexpr uint8_t DISPLAY_CLOCK = 0;
-constexpr uint8_t DISPLAY_STATUS = 1;
-constexpr uint8_t DISPLAY_SET_TIMEZONE = 2;
-constexpr uint8_t DISPLAY_SET_DST = 3;
-constexpr uint8_t DISPLAY_SET_EXIT = 4;
-
 constexpr uint8_t OPERATING_RUNNING = 0;
 constexpr uint8_t OPERATING_SYNCING = 1;
 constexpr uint8_t OPERATING_SETTING = 2;
@@ -133,7 +127,8 @@ void draw_clock_view(const DateTime &now, bool rtc_set, bool wwvb_active,
 void draw_status_view(const DateTime &now, bool rtc_set, bool wwvb_active,
                       bool wwvb_done, bool wwvb_failed, bool wwvb_timed_out,
                       uint16_t wwvb_elapsed_sec, uint8_t operating_state,
-                      int8_t timezone_hours, bool dst_enabled) {
+                      int8_t timezone_hours, bool dst_enabled,
+                      bool sync_enabled) {
   char line[22];
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
@@ -174,61 +169,76 @@ void draw_status_view(const DateTime &now, bool rtc_set, bool wwvb_active,
   if (timezone_hours >= 0)
     display.print('+');
   display.print(timezone_hours);
+
+  display.setCursor(0, 56);
+  display.print(F("SYNC: "));
+  display.print(sync_enabled ? F("ON") : F("OFF"));
 }
 
-void draw_timezone_view(int8_t pending_timezone_hours,
-                        bool pending_dst_enabled) {
-  display.setTextSize(1);
-  display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
-  display.setCursor(0, 0);
-  display.print(F("Settings: Timezone"));
+void format_2digit(char *buf, uint8_t value, bool visible) {
+  if (!visible) {
+    buf[0] = ' ';
+    buf[1] = ' ';
+    buf[2] = '\0';
+    return;
+  }
+
+  snprintf(buf, 3, "%02u", value);
+}
+
+void draw_utc_time_view(uint8_t current_setting_item, uint8_t hour,
+                        uint8_t minute, uint8_t second, bool blink_visible) {
+  char hh[3];
+  char mm[3];
+  char ss[3];
+
+  format_2digit(hh, hour,
+                (current_setting_item != SETTING_UTC_HOUR) || blink_visible);
+  format_2digit(mm, minute,
+                (current_setting_item != SETTING_UTC_MINUTE) || blink_visible);
+  format_2digit(ss, second,
+                (current_setting_item != SETTING_UTC_SECOND) || blink_visible);
 
   display.setTextSize(2);
-  display.setCursor(10, 18);
+  display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
+  display.setCursor(0, 18);
+  display.print(hh);
+  display.print(':');
+  display.print(mm);
+  display.print(':');
+  display.print(ss);
+
+  display.setTextSize(1);
+  display.setCursor(104, 26);
   display.print(F("UTC"));
-  if (pending_timezone_hours >= 0)
-    display.print('+');
-  display.print(pending_timezone_hours);
-
-  display.setTextSize(1);
-  display.setCursor(0, 46);
-  display.print(F("DST pending: "));
-  display.print(pending_dst_enabled ? F("ON") : F("OFF"));
-
-  display.setCursor(0, 56);
-  display.print(F("UP/DN adj MENU next"));
 }
 
-void draw_dst_view(bool pending_dst_enabled) {
-  display.setTextSize(1);
-  display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
-  display.setCursor(0, 0);
-  display.print(F("Settings: DST"));
+void draw_timezone_view(int8_t pending_timezone_hours, bool blink_visible) {
+  char line[9];
+  if (blink_visible) {
+    snprintf(line, sizeof(line), "UTC%+d", pending_timezone_hours);
+  } else {
+    snprintf(line, sizeof(line), "UTC   ");
+  }
 
   display.setTextSize(2);
-  display.setCursor(28, 22);
-  display.print(pending_dst_enabled ? F("ON") : F("OFF"));
-
-  display.setTextSize(1);
-  display.setCursor(0, 56);
-  display.print(F("UP/DN tog MENU next"));
-}
-
-void draw_exit_view() {
-  display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
-  display.setCursor(0, 0);
-  display.print(F("Settings: Exit"));
-
-  display.setTextSize(2);
   display.setCursor(16, 22);
-  display.print(F("Exit"));
+  display.print(line);
+}
 
-  display.setTextSize(1);
-  display.setCursor(0, 46);
-  display.print(F("MENU = exit setup"));
-  display.setCursor(0, 56);
-  display.print(F("UP/DN = back to DST"));
+void draw_toggle_view(const __FlashStringHelper *label, bool value,
+                      bool blink_visible) {
+  display.setTextSize(2);
+  display.setTextColor(SSD1306_WHITE, SSD1306_BLACK);
+  display.setCursor(0, 22);
+  display.print(label);
+  display.print(' ');
+  if (blink_visible) {
+    display.print(value ? F("ON") : F("OFF"));
+  } else {
+    display.print(F("   "));
+  }
 }
 
 } // namespace
@@ -316,9 +326,12 @@ void draw_date(const DateTime &now) {
 void display_handler(const DateTime &now, bool rtc_set, bool wwvb_active,
                      bool wwvb_done, bool wwvb_failed, bool wwvb_timed_out,
                      uint16_t wwvb_elapsed_sec, uint8_t operating_state,
-                     uint8_t display_state, int8_t timezone_hours,
-                     bool dst_enabled, int8_t pending_timezone_hours,
-                     bool pending_dst_enabled) {
+                     uint8_t display_state, uint8_t current_setting_item,
+                     int8_t timezone_hours, bool dst_enabled,
+                     uint8_t pending_utc_hour, uint8_t pending_utc_minute,
+                     uint8_t pending_utc_second, int8_t pending_timezone_hours,
+                     bool pending_dst_enabled, bool sync_enabled,
+                     bool pending_sync_enabled, bool blink_visible) {
   display.clearDisplay();
 
   switch (display_state) {
@@ -329,16 +342,20 @@ void display_handler(const DateTime &now, bool rtc_set, bool wwvb_active,
   case DISPLAY_STATUS:
     draw_status_view(now, rtc_set, wwvb_active, wwvb_done, wwvb_failed,
                      wwvb_timed_out, wwvb_elapsed_sec, operating_state,
-                     timezone_hours, dst_enabled);
+                     timezone_hours, dst_enabled, sync_enabled);
+    break;
+  case DISPLAY_SET_UTC_TIME:
+    draw_utc_time_view(current_setting_item, pending_utc_hour,
+                       pending_utc_minute, pending_utc_second, blink_visible);
     break;
   case DISPLAY_SET_TIMEZONE:
-    draw_timezone_view(pending_timezone_hours, pending_dst_enabled);
+    draw_timezone_view(pending_timezone_hours, blink_visible);
     break;
   case DISPLAY_SET_DST:
-    draw_dst_view(pending_dst_enabled);
+    draw_toggle_view(F("DST"), pending_dst_enabled, blink_visible);
     break;
-  case DISPLAY_SET_EXIT:
-    draw_exit_view();
+  case DISPLAY_SET_SYNC:
+    draw_toggle_view(F("SYNC"), pending_sync_enabled, blink_visible);
     break;
   default:
     draw_clock_view(now, rtc_set, wwvb_active, wwvb_done, wwvb_failed,
