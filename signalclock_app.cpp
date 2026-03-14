@@ -299,12 +299,7 @@ static void advance_setting_item(void) {
 }
 
 static void commit_time_group_and_advance(void) {
-  if (!pending_sync_enabled) {
-    apply_pending_utc_to_rtc();
-  } else {
-    Serial.println(F("UTC commit skipped because SYNC is ON"));
-  }
-
+  apply_pending_utc_to_rtc();
   current_setting_item = SETTING_TIMEZONE;
   sync_display_state_to_setting_item();
   print_state_summary();

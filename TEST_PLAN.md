@@ -191,9 +191,9 @@ Expected:
 
 Expected:
 
-- Serial reports that UTC commit is skipped because SYNC is ON
-- settings still advance to timezone
-- RTC is not overwritten by the manual edit
+- Serial prints the UTC commit
+- RTC is updated immediately from the manual edit
+- a later WWVB sync may still overwrite the RTC if sync remains enabled
 
 ## 10. Timezone behavior
 
