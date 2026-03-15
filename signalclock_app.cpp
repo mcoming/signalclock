@@ -249,9 +249,6 @@ static void apply_pending_utc_to_rtc(void) {
                             pending_utc_minute, pending_utc_second);
   rtc.adjust(pending_dt);
   rtc_set = true;
-  wwvb_done = true;
-  wwvb_failed = false;
-  wwvb_timed_out = false;
 
   Serial.print(F("UTC committed: "));
   Serial.print(pending_utc_hour);
@@ -315,16 +312,16 @@ static void start_wwvb_background_sync(void) {
   if (es100_start_receive(WWVB_TIMEOUT_MS)) {
     wwvb_active = true;
     wwvb_wait_start_ms = millis();
-    if (operating_state != OPERATING_SETTING) {
-      operating_state = OPERATING_SYNCING;
-    }
+    //if (operating_state != OPERATING_SETTING) {
+    //  operating_state = OPERATING_SYNCING;
+    //}
     Serial.println(F("WWVB background sync started"));
   } else {
     wwvb_active = false;
     wwvb_failed = true;
-    if (operating_state != OPERATING_SETTING) {
-      operating_state = OPERATING_RUNNING;
-    }
+    //if (operating_state != OPERATING_SETTING) {
+    //  operating_state = OPERATING_RUNNING;
+    //}
     Serial.println(F("WWVB start failed"));
   }
 }
